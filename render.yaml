@@ -1,3 +1,5 @@
+# This optional file documents Orbit's production settings. The same values can
+# be entered manually when creating a free Render Web Service.
 services:
   - type: web
     name: orbit-learning-planner
@@ -7,8 +9,10 @@ services:
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:
+      # Pin Node so a future Render default upgrade cannot surprise the build.
       - key: NODE_VERSION
         value: 22
+      # sync:false keeps Turso credentials private and out of source control.
       - key: TURSO_DATABASE_URL
         sync: false
       - key: TURSO_AUTH_TOKEN

@@ -2,13 +2,15 @@
 
 import { db } from "@/db";
 import { ensureDatabase } from "@/db/bootstrap";
-import { sessions, topics } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { sessions, topicDays, topics } from "@/db/schema";
+import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 const topicInput = z.object({ title: z.string().trim().min(2).max(80), description: z.string().max(400), color: z.string(), startDate: z.string(), targetDate: z.string() });
 
+// Server Actions are the only write path to Turso. Keeping mutations here means
+// the database token never reaches client JavaScript and every input is validated.
 export async function createTopic(formData: FormData) {
   await ensureDatabase();
   const parsed = topicInput.safeParse(Object.fromEntries(formData));
@@ -22,6 +24,8 @@ export async function createSession(formData: FormData) {
   await ensureDatabase();
   const parsed = z.object({ topicId: z.coerce.number().int().positive(), title: z.string().trim().min(2).max(100), date: z.string(), startTime: z.string(), duration: z.coerce.number().min(15).max(480), notes: z.string().max(500) }).safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: "Please complete the session details." };
+  // Combine the form's date and time into one timestamp, then derive the end from
+  // duration. This keeps the form friendly while storing an unambiguous interval.
   const start = new Date(`${parsed.data.date}T${parsed.data.startTime}:00`);
   const end = new Date(start.getTime() + parsed.data.duration * 60_000);
   await db.insert(sessions).values({ topicId: parsed.data.topicId, title: parsed.data.title, startsAt: start, endsAt: end, notes: parsed.data.notes });
@@ -44,4 +48,16 @@ export async function toggleSession(id: number, complete: boolean) {
   await ensureDatabase();
   await db.update(sessions).set({ status: complete ? "completed" : "planned" }).where(eq(sessions.id, id));
   revalidatePath("/");
+}
+
+export async function toggleTopicDay(topicId: number, date: string, complete: boolean) {
+  await ensureDatabase();
+  // Daily check-ins are intentionally limited to today. This prevents backfilling
+  // a perfect history later and makes the percentage reflect an honest daily habit.
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Vancouver", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  if (date !== today) return { error: "Only today's learning check-in can be changed." };
+  if (complete) await db.insert(topicDays).values({ topicId, date }).onConflictDoNothing();
+  else await db.delete(topicDays).where(and(eq(topicDays.topicId, topicId), eq(topicDays.date, date)));
+  revalidatePath("/");
+  return { ok: true };
 }

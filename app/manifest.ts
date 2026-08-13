@@ -1,6 +1,8 @@
 import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
+  // The browser uses this manifest to present Orbit as an installable standalone
+  // application instead of a normal tab, including its name, colors, and icon.
   return {
     name: "Orbit — Personal Learning Planner",
     short_name: "Orbit",
