@@ -59,16 +59,13 @@ export default function Planner({ topics, sessions, completedDays }: { topics: T
   return <main>
     <header className="topbar">
       <div className="brand"><div className="brandmark"><Sparkles size={18}/></div><span>orbit</span></div>
-      <div className="top-actions"><span className="today-label">Your learning space</span><button className="theme-toggle" onClick={toggleTheme} aria-label={`Switch to ${theme==="light"?"dark":"light"} mode`} title={`Switch to ${theme==="light"?"dark":"light"} mode`}>{theme==="light"?<Moon size={17}/>:<Sun size={17}/>}</button><button className="primary" onClick={()=>setModal("topic")}><Plus size={17}/> New topic</button></div>
-    </header>
-    <section className="hero">
-      <div><p className="eyebrow">PERSONAL LEARNING PLANNER</p><p className="lede">Turn the things you want to learn into a rhythm you can keep.</p></div>
-      <div className="stats">
+      <div className="stats header-stats">
         <div><span className="stat-icon purple"><Target/></span><strong>{topics.filter(t=>t.status==="active").length}</strong><small>active topics</small></div>
         <div><span className="stat-icon coral"><Clock3/></span><strong>{Math.round(minutes/60)}h</strong><small>focused so far</small></div>
         <div><span className="stat-icon gold"><Flame/></span><strong>{completed}</strong><small>sessions done</small></div>
       </div>
-    </section>
+      <div className="top-actions"><span className="today-label">Your learning space</span><button className="theme-toggle" onClick={toggleTheme} aria-label={`Switch to ${theme==="light"?"dark":"light"} mode`} title={`Switch to ${theme==="light"?"dark":"light"} mode`}>{theme==="light"?<Moon size={17}/>:<Sun size={17}/>}</button><button className="primary" onClick={()=>setModal("topic")}><Plus size={17}/> New topic</button></div>
+    </header>
     <section className="workspace">
       <aside>
         <div className="section-title"><span>Your topics</span><button aria-label="Add topic" onClick={()=>setModal("topic")}><Plus size={16}/></button></div>
