@@ -50,14 +50,34 @@ export async function toggleSession(id: number, complete: boolean) {
   revalidatePath("/");
 }
 
+export async function reopenTopic(id: number) {
+  await ensureDatabase();
+  const parsed = z.number().int().positive().safeParse(id);
+  if (!parsed.success) return { error: "That topic could not be reopened." };
+  await db.update(topics).set({ status: "active" }).where(eq(topics.id, parsed.data));
+  revalidatePath("/");
+  return { ok: true };
+}
+
 export async function toggleTopicDay(topicId: number, date: string, complete: boolean) {
   await ensureDatabase();
   // Daily check-ins are intentionally limited to today. This prevents backfilling
   // a perfect history later and makes the percentage reflect an honest daily habit.
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Vancouver", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   if (date !== today) return { error: "Only today's learning check-in can be changed." };
-  if (complete) await db.insert(topicDays).values({ topicId, date }).onConflictDoNothing();
-  else await db.delete(topicDays).where(and(eq(topicDays.topicId, topicId), eq(topicDays.date, date)));
+  if (complete) {
+    await db.insert(topicDays).values({ topicId, date }).onConflictDoNothing();
+    const [topic] = await db.select().from(topics).where(eq(topics.id, topicId));
+    if (topic) {
+      const completed = await db.select().from(topicDays).where(eq(topicDays.topicId, topicId));
+      const total = Math.floor((Date.parse(`${topic.targetDate}T00:00:00Z`) - Date.parse(`${topic.startDate}T00:00:00Z`)) / 86_400_000) + 1;
+      const done = completed.filter(day => day.date >= topic.startDate && day.date <= topic.targetDate).length;
+      if (total > 0 && done >= total) await db.update(topics).set({ status: "completed" }).where(eq(topics.id, topicId));
+    }
+  } else {
+    await db.delete(topicDays).where(and(eq(topicDays.topicId, topicId), eq(topicDays.date, date)));
+    await db.update(topics).set({ status: "active" }).where(eq(topics.id, topicId));
+  }
   revalidatePath("/");
   return { ok: true };
 }

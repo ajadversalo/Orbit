@@ -1,8 +1,8 @@
 "use client";
 
 import { useActionState, useEffect, useMemo, useState, useTransition } from "react";
-import { BookOpen, Check, ChevronLeft, ChevronRight, Clock3, Flame, Moon, Plus, Sparkles, Sun, Target, X } from "lucide-react";
-import { createSession, createTopic, toggleSession, toggleTopicDay, updateSession } from "./actions";
+import { BookOpen, Check, ChevronLeft, ChevronRight, Clock3, Flame, Moon, Plus, RotateCcw, Sparkles, Sun, Target, X } from "lucide-react";
+import { createSession, createTopic, reopenTopic, toggleSession, toggleTopicDay, updateSession } from "./actions";
 
 type Topic = { id: number; title: string; description: string; color: string; startDate: string; targetDate: string; status: string };
 type Session = { id: number; topicId: number; title: string; notes: string; startsAt: Date; endsAt: Date; status: string };
@@ -49,6 +49,8 @@ export default function Planner({ topics, sessions, completedDays }: { topics: T
   // Derive dashboard totals from source records so counters cannot drift out of
   // sync when a session is edited, completed, or rescheduled.
   const completed = sessions.filter(s=>s.status === "completed").length;
+  const activeTopics = topics.filter(t=>t.status!=="completed");
+  const completedTopics = topics.filter(t=>t.status==="completed");
   const minutes = sessions.filter(s=>s.status === "completed").reduce((n,s)=>n+(new Date(s.endsAt).getTime()-new Date(s.startsAt).getTime())/60000,0);
   // Capture the selected item before opening a shared modal. This lets the same UI
   // support new sessions, rescheduling, and daily topic check-ins.
@@ -69,13 +71,14 @@ export default function Planner({ topics, sessions, completedDays }: { topics: T
     <section className="workspace">
       <aside>
         <div className="section-title"><span>Your topics</span><button aria-label="Add topic" onClick={()=>setModal("topic")}><Plus size={16}/></button></div>
-        <div className="topic-list">{topics.length ? topics.map(t => {
+        <div className="topic-list">{activeTopics.length ? activeTopics.map(t => {
           const total=Math.floor((Date.parse(`${t.targetDate}T00:00:00Z`)-Date.parse(`${t.startDate}T00:00:00Z`))/86400000)+1, done=completedDays.filter(d=>d.topicId===t.id&&d.date>=t.startDate&&d.date<=t.targetDate).length, pct=total>0?Math.round(done/total*100):0;
           return <article className="topic-card" key={t.id} style={{"--accent":colors[t.color]||colors.violet} as React.CSSProperties}>
             <div className="topic-head"><span className="dot"/><span className="topic-status">{t.status}</span></div><h3>{t.title}</h3><p>{t.description||"A new path to explore."}</p>
             <div className="progress"><span style={{width:`${pct}%`}}/></div><div className="topic-meta"><span>{done}/{total} learning days</span><b>{pct}%</b></div>
           </article>}) : <div className="empty-topic"><BookOpen/><h3>Your next obsession?</h3><p>Add something you have always wanted to learn.</p></div>}</div>
         {sessions.length>0&&<div className="upcoming"><div className="section-title"><span>Upcoming sessions</span></div>{sessions.filter(s=>s.status==="planned"&&new Date(s.endsAt)>=new Date()).slice(0,4).map(s=>{const t=topics.find(t=>t.id===s.topicId);return <button className="session-card" key={s.id} onClick={()=>editSession(s)} style={{"--accent":colors[t?.color||"violet"]} as React.CSSProperties}><span className="session-date"><b>{new Date(s.startsAt).getDate()}</b>{new Date(s.startsAt).toLocaleString("en",{month:"short"})}</span><span className="session-copy"><b>{s.title}</b><small>{new Date(s.startsAt).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})} · {t?.title}</small></span><ChevronRight size={15}/></button>})}</div>}
+        {completedTopics.length>0&&<div className="resume-list"><div className="section-title"><span>Add to resume</span></div>{completedTopics.map(t=><div className="resume-card" key={t.id} style={{"--accent":colors[t.color]||colors.violet} as React.CSSProperties}><span className="dot"/><span><b>{t.title}</b><small>Completed</small></span><button onClick={()=>reopenTopic(t.id)} aria-label={`Undo completion for ${t.title}`} title="Undo completion"><RotateCcw size={14}/><span>Undo</span></button></div>)}</div>}
       </aside>
       <div className="calendar-shell">
         <div className="calendar-head"><div><p>LEARNING RHYTHM</p><h2>{month.toLocaleString("en",{month:"long",year:"numeric"})}</h2></div><div className="calendar-nav"><button onClick={()=>setMonth(new Date())}>Today</button><button aria-label="Previous month" onClick={()=>setMonth(new Date(month.getFullYear(),month.getMonth()-1))}><ChevronLeft/></button><button aria-label="Next month" onClick={()=>setMonth(new Date(month.getFullYear(),month.getMonth()+1))}><ChevronRight/></button></div></div>
