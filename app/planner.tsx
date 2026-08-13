@@ -62,7 +62,7 @@ export default function Planner({ topics, sessions, completedDays }: { topics: T
       <div className="top-actions"><span className="today-label">Your learning space</span><button className="theme-toggle" onClick={toggleTheme} aria-label={`Switch to ${theme==="light"?"dark":"light"} mode`} title={`Switch to ${theme==="light"?"dark":"light"} mode`}>{theme==="light"?<Moon size={17}/>:<Sun size={17}/>}</button><button className="primary" onClick={()=>setModal("topic")}><Plus size={17}/> New topic</button></div>
     </header>
     <section className="hero">
-      <div><p className="eyebrow">PERSONAL LEARNING PLANNER</p><h1>Make room for<br/><em>curiosity.</em></h1><p className="lede">Turn the things you want to learn into a rhythm you can keep.</p></div>
+      <div><p className="eyebrow">PERSONAL LEARNING PLANNER</p><p className="lede">Turn the things you want to learn into a rhythm you can keep.</p></div>
       <div className="stats">
         <div><span className="stat-icon purple"><Target/></span><strong>{topics.filter(t=>t.status==="active").length}</strong><small>active topics</small></div>
         <div><span className="stat-icon coral"><Clock3/></span><strong>{Math.round(minutes/60)}h</strong><small>focused so far</small></div>
