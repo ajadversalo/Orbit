@@ -22,12 +22,11 @@ export async function createTopic(formData: FormData) {
 
 export async function createSession(formData: FormData) {
   await ensureDatabase();
-  const parsed = z.object({ topicId: z.coerce.number().int().positive(), title: z.string().trim().min(2).max(100), date: z.string(), startTime: z.string(), duration: z.coerce.number().min(15).max(480), notes: z.string().max(500) }).safeParse(Object.fromEntries(formData));
+  const parsed = z.object({ topicId: z.coerce.number().int().positive(), title: z.string().trim().min(2).max(100), startDate: z.string(), endDate: z.string(), notes: z.string().max(500) }).safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: "Please complete the session details." };
-  // Combine the form's date and time into one timestamp, then derive the end from
-  // duration. This keeps the form friendly while storing an unambiguous interval.
-  const start = new Date(`${parsed.data.date}T${parsed.data.startTime}:00`);
-  const end = new Date(start.getTime() + parsed.data.duration * 60_000);
+  if (parsed.data.endDate < parsed.data.startDate) return { error: "End date must be on or after the start date." };
+  const start = new Date(`${parsed.data.startDate}T00:00:00`);
+  const end = new Date(`${parsed.data.endDate}T00:00:00`);
   await db.insert(sessions).values({ topicId: parsed.data.topicId, title: parsed.data.title, startsAt: start, endsAt: end, notes: parsed.data.notes });
   revalidatePath("/");
   return { ok: true };
@@ -35,11 +34,11 @@ export async function createSession(formData: FormData) {
 
 export async function updateSession(formData: FormData) {
   await ensureDatabase();
-  const parsed = z.object({ id: z.coerce.number().int().positive(), topicId: z.coerce.number().int().positive(), title: z.string().trim().min(2).max(100), date: z.string(), startTime: z.string(), endTime: z.string(), notes: z.string().max(500) }).safeParse(Object.fromEntries(formData));
+  const parsed = z.object({ id: z.coerce.number().int().positive(), topicId: z.coerce.number().int().positive(), title: z.string().trim().min(2).max(100), startDate: z.string(), endDate: z.string(), notes: z.string().max(500) }).safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: "Please check the session details." };
-  const start = new Date(`${parsed.data.date}T${parsed.data.startTime}:00`);
-  const end = new Date(`${parsed.data.date}T${parsed.data.endTime}:00`);
-  if (end <= start) return { error: "End time must be after the start time." };
+  const start = new Date(`${parsed.data.startDate}T00:00:00`);
+  const end = new Date(`${parsed.data.endDate}T00:00:00`);
+  if (end < start) return { error: "End date must be on or after the start date." };
   await db.update(sessions).set({ topicId: parsed.data.topicId, title: parsed.data.title, startsAt: start, endsAt: end, notes: parsed.data.notes }).where(eq(sessions.id, parsed.data.id));
   revalidatePath("/");
   return { ok: true };
@@ -62,12 +61,11 @@ export async function moveOrResizeSession(id: number, date: string, mode: "move"
   if (!session) return { error: "That event no longer exists." };
   const target = new Date(`${parsed.data.date}T00:00:00`);
   if (parsed.data.mode === "move") {
-    const duration = session.endsAt.getTime() - session.startsAt.getTime();
-    target.setHours(session.startsAt.getHours(), session.startsAt.getMinutes(), 0, 0);
-    await db.update(sessions).set({ startsAt: target, endsAt: new Date(target.getTime() + duration) }).where(eq(sessions.id, session.id));
+    const durationDays = Math.max(0, Math.round((new Date(session.endsAt.getFullYear(),session.endsAt.getMonth(),session.endsAt.getDate()).getTime()-new Date(session.startsAt.getFullYear(),session.startsAt.getMonth(),session.startsAt.getDate()).getTime())/86_400_000));
+    await db.update(sessions).set({ startsAt: target, endsAt: new Date(target.getTime() + durationDays*86_400_000) }).where(eq(sessions.id, session.id));
   } else {
-    target.setHours(session.endsAt.getHours(), session.endsAt.getMinutes(), 0, 0);
-    if (target <= session.startsAt) return { error: "An event must end on or after its starting day." };
+    const startDay = new Date(session.startsAt.getFullYear(),session.startsAt.getMonth(),session.startsAt.getDate());
+    if (target < startDay) return { error: "An event must end on or after its starting day." };
     await db.update(sessions).set({ endsAt: target }).where(eq(sessions.id, session.id));
   }
   revalidatePath("/");
@@ -98,12 +96,19 @@ export async function updateTopicSchedule(formData: FormData) {
   return { ok: true };
 }
 
-export async function resizeTopicBoundary(id: number, date: string, edge: "start" | "end") {
+export async function resizeTopicBoundary(id: number, date: string, edge: "start" | "end" | "move") {
   await ensureDatabase();
-  const parsed = z.object({ id: z.number().int().positive(), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), edge: z.enum(["start", "end"]) }).safeParse({ id, date, edge });
+  const parsed = z.object({ id: z.number().int().positive(), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), edge: z.enum(["start", "end", "move"]) }).safeParse({ id, date, edge });
   if (!parsed.success) return { error: "That topic could not be resized." };
   const [topic] = await db.select().from(topics).where(eq(topics.id, parsed.data.id));
   if (!topic) return { error: "That topic no longer exists." };
+  if (parsed.data.edge === "move") {
+    const duration = Math.round((Date.parse(`${topic.targetDate}T00:00:00Z`) - Date.parse(`${topic.startDate}T00:00:00Z`)) / 86_400_000);
+    const movedEnd = new Date(Date.parse(`${parsed.data.date}T00:00:00Z`) + duration * 86_400_000).toISOString().slice(0,10);
+    await db.update(topics).set({ startDate: parsed.data.date, targetDate: movedEnd }).where(eq(topics.id, parsed.data.id));
+    revalidatePath("/");
+    return { ok: true };
+  }
   if (parsed.data.edge === "start" && parsed.data.date > topic.targetDate) return { error: "Start must be before the end." };
   if (parsed.data.edge === "end" && parsed.data.date < topic.startDate) return { error: "End must be after the start." };
   await db.update(topics).set(parsed.data.edge === "start" ? { startDate: parsed.data.date } : { targetDate: parsed.data.date }).where(eq(topics.id, parsed.data.id));
