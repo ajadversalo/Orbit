@@ -1,8 +1,8 @@
 "use client";
 
 import { useActionState, useEffect, useMemo, useState, useTransition } from "react";
-import { BookOpen, Check, ChevronLeft, ChevronRight, Clock3, Flame, Moon, Plus, RotateCcw, Sparkles, Sun, Target, X } from "lucide-react";
-import { createSession, createTopic, reopenTopic, toggleSession, toggleTopicDay, updateSession } from "./actions";
+import { BookOpen, Check, ChevronLeft, ChevronRight, Clock3, Flame, Moon, Plus, RotateCcw, Settings, Sparkles, Sun, Target, Trash2, X } from "lucide-react";
+import { createSession, createTopic, deleteSession, deleteTopic, moveOrResizeSession, reopenTopic, toggleSession, toggleTopicDay, updateSession, updateTopicSchedule } from "./actions";
 
 type Topic = { id: number; title: string; description: string; color: string; startDate: string; targetDate: string; status: string };
 type Session = { id: number; topicId: number; title: string; notes: string; startsAt: Date; endsAt: Date; status: string };
@@ -31,11 +31,12 @@ const fmtDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStar
 // server and are refreshed automatically after successful Server Actions.
 export default function Planner({ topics, sessions, completedDays }: { topics: Topic[]; sessions: Session[]; completedDays: CompletedDay[] }) {
   const [month, setMonth] = useState(() => new Date());
-  const [modal, setModal] = useState<"topic"|"session"|"edit"|"day"|null>(null);
+  const [modal, setModal] = useState<"topic"|"session"|"detail"|"edit"|"day"|null>(null);
   const [selectedSession, setSelectedSession] = useState<Session|null>(null);
   const [selectedTopicDay, setSelectedTopicDay] = useState<{topic:Topic;date:string}|null>(null);
   const [selectedDate, setSelectedDate] = useState(fmtDay(new Date()));
   const [theme, setTheme] = useState<"light"|"dark">("light");
+  const [dragging, setDragging] = useState<{id:number;mode:"move"|"resize"}|null>(null);
   useEffect(()=>{ setTheme(document.documentElement.dataset.theme==="dark"?"dark":"light"); },[]);
   const toggleTheme=()=>{const next=theme==="light"?"dark":"light";setTheme(next);document.documentElement.dataset.theme=next;localStorage.setItem("orbit-theme",next)};
   // Render six complete Monday-first weeks. A stable 42-cell grid avoids layout
@@ -55,8 +56,9 @@ export default function Planner({ topics, sessions, completedDays }: { topics: T
   // Capture the selected item before opening a shared modal. This lets the same UI
   // support new sessions, rescheduling, and daily topic check-ins.
   const openSession = (date: Date) => { setSelectedDate(fmtDay(date)); setModal("session"); };
-  const editSession = (session: Session) => { setSelectedSession(session); setModal("edit"); };
+  const editSession = (session: Session) => { setSelectedSession(session); setModal("detail"); };
   const openTopicDay = (topic: Topic, date: string) => { setSelectedTopicDay({topic,date}); setModal("day"); };
+  const dropEvent = async (date:string) => { if(!dragging)return; await moveOrResizeSession(dragging.id,date,dragging.mode); setDragging(null); };
 
   return <main>
     <header className="topbar">
@@ -83,18 +85,56 @@ export default function Planner({ topics, sessions, completedDays }: { topics: T
       <div className="calendar-shell">
         <div className="calendar-head"><div><p>LEARNING RHYTHM</p><h2>{month.toLocaleString("en",{month:"long",year:"numeric"})}</h2></div><div className="calendar-nav"><button onClick={()=>setMonth(new Date())}>Today</button><button aria-label="Previous month" onClick={()=>setMonth(new Date(month.getFullYear(),month.getMonth()-1))}><ChevronLeft/></button><button aria-label="Next month" onClick={()=>setMonth(new Date(month.getFullYear(),month.getMonth()+1))}><ChevronRight/></button></div></div>
         <div className="weekdays">{["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(d=><span key={d}>{d}</span>)}</div>
-        <div className="calendar-grid">{days.map((day,i)=>{ const key=fmtDay(day), ds=sessions.filter(s=>fmtDay(new Date(s.startsAt))===key), covering=topics.filter(t=>key>=t.startDate&&key<=t.targetDate), isToday=key===fmtDay(new Date()), faded=day.getMonth()!==month.getMonth(); return <button className={`day ${faded?"faded":""}`} key={i} onClick={()=>openSession(day)}><span className={isToday?"today":""}>{day.getDate()}</span><div className="coverage-bands">{covering.slice(0,2).map(t=>{const starts=t.startDate===key,ends=t.targetDate===key,weekStart=day.getDay()===1,isDone=completedDays.some(d=>d.topicId===t.id&&d.date===key);return <div key={t.id} className={`coverage ${starts?"coverage-start":""} ${ends?"coverage-end":""} ${isDone?"coverage-done":""}`} style={{"--accent":colors[t.color]||colors.violet} as React.CSSProperties} title={`${t.title}: ${isDone?"done":"not completed"}`} onClick={e=>{e.stopPropagation();openTopicDay(t,key)}}><b>{isDone&&<Check size={10}/>} {(starts||weekStart||i===0)?t.title:""}</b></div>})}</div><div className="day-events">{ds.slice(0,2).map(s=>{const t=topics.find(t=>t.id===s.topicId);return <div key={s.id} className={`event ${s.status}`} style={{"--accent":colors[t?.color||"violet"]} as React.CSSProperties} onClick={e=>{e.stopPropagation();editSession(s)}}><span>{new Date(s.startsAt).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}</span><b>{s.title}</b><i onClick={e=>{e.stopPropagation();toggleSession(s.id,s.status!=="completed")}}><Check size={12}/></i></div>})}</div></button>})}</div>
+        <div className="calendar-grid">{days.map((day,i)=>{
+          const key=fmtDay(day), ds=sessions.filter(s=>fmtDay(new Date(s.startsAt))===key), covering=topics.filter(t=>key>=t.startDate&&key<=t.targetDate), isToday=key===fmtDay(new Date()), faded=day.getMonth()!==month.getMonth();
+          return <button className={`day ${faded?"faded":""} ${dragging?"drop-ready":""}`} key={i} onClick={()=>openSession(day)} onDragOver={e=>{if(dragging)e.preventDefault()}} onDrop={e=>{e.preventDefault();e.stopPropagation();void dropEvent(key)}}>
+            <span className={isToday?"today":""}>{day.getDate()}</span>
+            <div className="coverage-bands">{covering.slice(0,2).map(t=>{const starts=t.startDate===key,ends=t.targetDate===key,weekStart=day.getDay()===1,isDone=completedDays.some(d=>d.topicId===t.id&&d.date===key);return <div key={t.id} className={`coverage ${starts?"coverage-start":""} ${ends?"coverage-end":""} ${isDone?"coverage-done":""}`} style={{"--accent":colors[t.color]||colors.violet} as React.CSSProperties} title={`${t.title}: ${isDone?"done":"not completed"}`} onClick={e=>{e.stopPropagation();openTopicDay(t,key)}}><b>{isDone&&<Check size={10}/>} {(starts||weekStart||i===0)?t.title:""}</b></div>})}</div>
+            <div className="day-events">{ds.slice(0,2).map(s=>{const t=topics.find(t=>t.id===s.topicId), span=Math.max(1,Math.ceil((new Date(s.endsAt).getTime()-new Date(s.startsAt).getTime())/86400000));return <div key={s.id} draggable className={`event ${s.status}`} style={{"--accent":colors[t?.color||"violet"]} as React.CSSProperties} onDragStart={e=>{e.stopPropagation();setDragging({id:s.id,mode:"move"});e.dataTransfer.effectAllowed="move"}} onDragEnd={()=>setDragging(null)} onClick={e=>{e.stopPropagation();editSession(s)}} title="Drag to move; drag the right handle to resize by days"><span>{new Date(s.startsAt).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}</span><b>{s.title}{span>1?` · ${span} days`:""}</b><i onClick={e=>{e.stopPropagation();toggleSession(s.id,s.status!=="completed")}}><Check size={12}/></i><em draggable onDragStart={e=>{e.stopPropagation();setDragging({id:s.id,mode:"resize"});e.dataTransfer.effectAllowed="move"}} aria-label="Resize event by days" title="Drag to an end date"/></div>})}</div>
+          </button>
+        })}</div>
       </div>
     </section>
-    {modal && <Modal title={modal==="topic"?"Begin a learning path":modal==="edit"?"Reschedule your session":modal==="day"?"Daily learning check-in":"Plan a focus session"} close={()=>setModal(null)}>{modal==="day"&&selectedTopicDay?<DailyCheckIn value={selectedTopicDay} done={completedDays.some(d=>d.topicId===selectedTopicDay.topic.id&&d.date===selectedTopicDay.date)} close={()=>setModal(null)}/>:<ActionForm type={modal as "topic"|"session"|"edit"} topics={topics} date={selectedDate} session={modal==="edit"?selectedSession:null} close={()=>setModal(null)}/>}</Modal>}
+    {modal && <Modal title={modal==="topic"?"Begin a learning path":modal==="detail"?(selectedSession?.title||"Calendar event"):modal==="edit"?"Event settings":modal==="day"?"Daily learning check-in":"Plan a focus session"} close={()=>setModal(null)}>{modal==="detail"&&selectedSession?<SessionDetail session={selectedSession} topic={topics.find(t=>t.id===selectedSession.topicId)} settings={()=>setModal("edit")} close={()=>setModal(null)}/>:modal==="edit"&&selectedSession?<SessionSettings session={selectedSession} topics={topics} close={()=>setModal(null)}/>:modal==="day"&&selectedTopicDay?<DailyCheckIn value={selectedTopicDay} done={completedDays.some(d=>d.topicId===selectedTopicDay.topic.id&&d.date===selectedTopicDay.date)} close={()=>setModal(null)}/>:<ActionForm type={modal as "topic"|"session"} topics={topics} date={selectedDate} session={null} close={()=>setModal(null)}/>}</Modal>}
   </main>
+}
+
+function SessionDetail({session,topic,settings,close}:{session:Session;topic?:Topic;settings:()=>void;close:()=>void}) {
+  const [pending,startTransition]=useTransition();
+  const start=new Date(session.startsAt), end=new Date(session.endsAt);
+  return <div className="event-detail">
+    <div className="event-detail-time"><Clock3/><span><b>{start.toLocaleDateString("en",{weekday:"long",month:"long",day:"numeric"})}</b><small>{start.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})} – {end.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}</small></span></div>
+    {topic&&<p className="event-detail-topic" style={{"--accent":colors[topic.color]||colors.violet} as React.CSSProperties}><i/>{topic.title}</p>}
+    {session.notes&&<p className="event-detail-notes">{session.notes}</p>}
+    <div className="event-detail-actions"><button className="settings-button" onClick={settings}><Settings size={16}/> Settings</button><button className="delete-button" disabled={pending} onClick={()=>{if(window.confirm(`Delete “${session.title}”? This cannot be undone.`))startTransition(async()=>{await deleteSession(session.id);close()})}}><Trash2 size={16}/>{pending?"Deleting…":"Delete event"}</button></div>
+  </div>;
+}
+
+function SessionSettings({session,topics,close}:{session:Session;topics:Topic[];close:()=>void}) {
+  const [state,formAction,pending]=useActionState(async(_:unknown,fd:FormData)=>updateSession(fd),null);
+  useEffect(()=>{if(state&&"ok" in state)close()},[state,close]);
+  const start=new Date(session.startsAt), end=new Date(session.endsAt);
+  return <form action={formAction} className="form">
+    <input type="hidden" name="id" value={session.id}/>
+    <label>Topic<select name="topicId" required defaultValue={session.topicId}>{topics.map(t=><option key={t.id} value={t.id}>{t.title}</option>)}</select></label>
+    <label>Session intention<input name="title" required defaultValue={session.title}/></label>
+    <label>Date<input type="date" name="date" required defaultValue={fmtDay(start)}/></label>
+    <div className="form-row"><label>Start<input type="time" name="startTime" required defaultValue={start.toTimeString().slice(0,5)}/></label><label>End<input type="time" name="endTime" required defaultValue={end.toTimeString().slice(0,5)}/></label></div>
+    <label>Notes<textarea name="notes" defaultValue={session.notes}/></label>
+    {state&&"error" in state&&<p className="error">{state.error}</p>}
+    <button className="submit" disabled={pending}>{pending?"Saving…":"Save settings"}</button>
+  </form>;
 }
 
 // A coverage-band click opens this focused check-in. Only today is mutable so the
 // progress history represents a genuine daily habit rather than later backfilling.
 function DailyCheckIn({value,done,close}:{value:{topic:Topic;date:string};done:boolean;close:()=>void}) {
   const [pending,startTransition]=useTransition(); const today=fmtDay(new Date()), canEdit=value.date===today;
-  return <div className="daily-checkin"><div className="checkin-topic" style={{"--accent":colors[value.topic.color]||colors.violet} as React.CSSProperties}><span/><div><small>{new Date(`${value.date}T12:00:00`).toLocaleDateString("en",{weekday:"long",month:"long",day:"numeric"})}</small><h3>{value.topic.title}</h3></div></div>{canEdit?<button className={`done-check ${done?"checked":""}`} disabled={pending} onClick={()=>startTransition(async()=>{await toggleTopicDay(value.topic.id,value.date,!done);close()})}><i>{done&&<Check/>}</i><span><b>{done?"Learning done for today":"Mark today as done"}</b><small>{done?"Click to undo this check-in.":"This advances your topic's daily progress."}</small></span></button>:<div className="checkin-locked"><Clock3/><p>{value.date<today?"This day has passed.":"Come back on this day to check in."}<small>Only today’s learning can be marked complete.</small></p></div>}</div>
+  const [settings,setSettings]=useState(false);
+  const [state,formAction,saving]=useActionState(async(_:unknown,fd:FormData)=>updateTopicSchedule(fd),null);
+  useEffect(()=>{if(state&&"ok" in state)close()},[state,close]);
+  if(settings)return <form action={formAction} className="form topic-settings"><input type="hidden" name="id" value={value.topic.id}/><div className="form-row"><label>Start date<input type="date" name="startDate" required defaultValue={value.topic.startDate}/></label><label>End date<input type="date" name="targetDate" required defaultValue={value.topic.targetDate}/></label></div>{state&&"error" in state&&<p className="error">{state.error}</p>}<button className="submit" disabled={saving}>{saving?"Saving…":"Save dates"}</button><button type="button" className="delete-topic" disabled={pending} onClick={()=>{if(window.confirm(`Delete “${value.topic.title}” and all of its events? This cannot be undone.`))startTransition(async()=>{await deleteTopic(value.topic.id);close()})}}><Trash2 size={16}/>{pending?"Deleting…":"Delete entire topic"}</button></form>;
+  return <div className="daily-checkin"><div className="checkin-topic" style={{"--accent":colors[value.topic.color]||colors.violet} as React.CSSProperties}><span/><div><small>{new Date(`${value.date}T12:00:00`).toLocaleDateString("en",{weekday:"long",month:"long",day:"numeric"})}</small><h3>{value.topic.title}</h3></div></div>{canEdit?<button className={`done-check ${done?"checked":""}`} disabled={pending} onClick={()=>startTransition(async()=>{await toggleTopicDay(value.topic.id,value.date,!done);close()})}><i>{done&&<Check/>}</i><span><b>{done?"Learning done for today":"Mark today as done"}</b><small>{done?"Click to undo this check-in.":"This advances your topic's daily progress."}</small></span></button>:<div className="checkin-locked"><Clock3/><p>{value.date<today?"This day has passed.":"Come back on this day to check in."}<small>Only today’s learning can be marked complete.</small></p></div>}<button className="topic-settings-button" onClick={()=>setSettings(true)}><Settings size={16}/> Settings</button></div>
 }
 
 // One modal frame keeps keyboard, backdrop, and close behavior consistent across
