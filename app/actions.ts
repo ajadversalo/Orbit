@@ -7,7 +7,7 @@ import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
-const topicInput = z.object({ title: z.string().trim().min(2).max(80), description: z.string().max(400), color: z.string(), startDate: z.string(), targetDate: z.string() });
+const topicInput = z.object({ title: z.string().trim().min(2).max(80), description: z.string().max(400).optional().default(""), color: z.string(), startDate: z.string(), targetDate: z.string() });
 
 // Server Actions are the only write path to Turso. Keeping mutations here means
 // the database token never reaches client JavaScript and every input is validated.
@@ -94,6 +94,19 @@ export async function updateTopicSchedule(formData: FormData) {
   const parsed = z.object({ id: z.coerce.number().int().positive(), startDate: z.string(), targetDate: z.string() }).safeParse(Object.fromEntries(formData));
   if (!parsed.success || parsed.data.targetDate < parsed.data.startDate) return { error: "End date must be on or after the start date." };
   await db.update(topics).set({ startDate: parsed.data.startDate, targetDate: parsed.data.targetDate }).where(eq(topics.id, parsed.data.id));
+  revalidatePath("/");
+  return { ok: true };
+}
+
+export async function resizeTopicBoundary(id: number, date: string, edge: "start" | "end") {
+  await ensureDatabase();
+  const parsed = z.object({ id: z.number().int().positive(), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), edge: z.enum(["start", "end"]) }).safeParse({ id, date, edge });
+  if (!parsed.success) return { error: "That topic could not be resized." };
+  const [topic] = await db.select().from(topics).where(eq(topics.id, parsed.data.id));
+  if (!topic) return { error: "That topic no longer exists." };
+  if (parsed.data.edge === "start" && parsed.data.date > topic.targetDate) return { error: "Start must be before the end." };
+  if (parsed.data.edge === "end" && parsed.data.date < topic.startDate) return { error: "End must be after the start." };
+  await db.update(topics).set(parsed.data.edge === "start" ? { startDate: parsed.data.date } : { targetDate: parsed.data.date }).where(eq(topics.id, parsed.data.id));
   revalidatePath("/");
   return { ok: true };
 }
