@@ -66,7 +66,6 @@ export default function Planner({ topics, sessions, completedDays }: { topics: T
       <div className="brand"><div className="brandmark"><Sparkles size={18}/></div><span>orbit</span></div>
       <div className="stats header-stats">
         <div><span className="stat-icon purple"><Target/></span><strong>{topics.filter(t=>t.status==="active").length}</strong><small>active topics</small></div>
-        <div><span className="stat-icon coral"><CalendarDays/></span><strong>{sessions.length}</strong><small>all-day events</small></div>
         <div><span className="stat-icon gold"><Flame/></span><strong>{completed}</strong><small>events done</small></div>
       </div>
       <div className="top-actions"><span className="today-label">Your learning space</span><button className="theme-toggle" onClick={toggleTheme} aria-label={`Switch to ${theme==="light"?"dark":"light"} mode`} title={`Switch to ${theme==="light"?"dark":"light"} mode`}>{theme==="light"?<Moon size={17}/>:<Sun size={17}/>}</button><button className="primary" onClick={()=>setModal("topic")}><Plus size={17}/> New topic</button></div>
